@@ -32,10 +32,17 @@ def fetch_github_repos(user):
 
 def create_gitlab_project(name):
     url = f"{GITLAB_URL}/api/v4/projects"
-    payload = {"name": name, "namespace_id": GITLAB_GROUP_ID, "visibility": "private"}
+    payload = {
+        "name": name,
+        "namespace_id": GITLAB_GROUP_ID,
+        "visibility": "private"
+    }
     r = requests.post(url, headers=gl_headers, data=payload)
-    r.raise_for_status()
+    if not r.ok:
+        print(f"[ERROR] Creating project '{name}': {r.status_code} {r.text}")
+        r.raise_for_status()
     return r.json()["id"]
+
 
 def setup_pull_mirror(project_id, repo_name, user):
     url = f"{GITLAB_URL}/api/v4/projects/{project_id}/remote_mirrors"
