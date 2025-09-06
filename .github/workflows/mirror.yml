@@ -11,6 +11,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}         # GitHub PAT
       GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}   # GitLab PAT with api+write_repository
+      GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
       GITLAB_GROUP_PATH: my-group                 # <-- Your GitLab group path (not ID)
       GITHUB_USER: "mao1910,le-fork"
     steps:
