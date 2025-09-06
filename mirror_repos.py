@@ -3,7 +3,7 @@ import requests
 
 # ====== Configuration (from CI/CD variables) ======
 GITHUB_TOKEN    = os.environ["GITHUB_TOKEN"]       # GitHub Personal Access Token (with repo scope)
-GITHUB_USER     = os.environ["GITHUB_USER"]        # GitHub username or org name
+GITHUB_USER     = os.environ["GITHUB_USER"]        # Comma-separated GitHub username(s) or org name(s)
 GITLAB_TOKEN    = os.environ["GITLAB_TOKEN"]       # GitLab Personal Access Token (with api scope)
 GITLAB_URL      = os.environ.get("GITLAB_URL", "https://gitlab.com")
 GITLAB_GROUP_ID = os.environ["GITLAB_GROUP_ID"]    # Numeric ID of the GitLab group/namespace
@@ -12,13 +12,10 @@ GITLAB_GROUP_ID = os.environ["GITLAB_GROUP_ID"]    # Numeric ID of the GitLab gr
 gh_headers = {"Authorization": f"token {GITHUB_TOKEN}"}
 gl_headers = {"PRIVATE-TOKEN": GITLAB_TOKEN}
 
-def fetch_github_repos():
+
+def fetch_github_repos(user):
     """
-    Fetch all GitHub repositories visible to the PAT.
-    
-    params:
-      type=all    → includes personal, private, and org repos you have access to
-      type=owner  → only repos you personally own (excludes org repos)
+    Fetch all GitHub repositories for a given user or org visible to the PAT.
     """
     repos, page = [], 1
     while True:
@@ -28,17 +25,20 @@ def fetch_github_repos():
             params={
                 "per_page": 100,
                 "page": page,
-                "type": "owner"      # change to "all" to include organization repos
+                "type": "all"
             }
         )
         r.raise_for_status()
         data = r.json()
         if not data:
             break
-        repos.extend(data)
+        # Filter to only the specified user/org's repos
+        for repo in data:
+            if repo["owner"]["login"].lower() == user.lower():
+                repos.append(repo["name"])
         page += 1
-    # Return only the repository names for mirroring
-    return [repo["name"] for repo in repos]
+    return repos
+
 
 def create_gitlab_project(name):
     """
@@ -55,14 +55,15 @@ def create_gitlab_project(name):
     r.raise_for_status()
     return r.json()["id"]
 
-def setup_pull_mirror(project_id, repo_name):
+
+def setup_pull_mirror(project_id, repo_name, user):
     """
     Configure a pull mirror for the given GitLab project.
     Uses embedded credentials in the HTTPS URL for authentication.
     """
     url = f"{GITLAB_URL}/api/v4/projects/{project_id}/remote_mirrors"
     payload = {
-        "url": f"https://{GITHUB_USER}:{GITHUB_TOKEN}@github.com/{GITHUB_USER}/{repo_name}.git",
+        "url": f"https://{user}:{GITHUB_TOKEN}@github.com/{user}/{repo_name}.git",
         "enabled": True,
         "only_protected_branches": False,
         "keep_divergent_refs": True
@@ -70,20 +71,29 @@ def setup_pull_mirror(project_id, repo_name):
     r = requests.post(url, headers=gl_headers, data=payload)
     r.raise_for_status()
 
+
 def main():
-    # Fetch the list of repo names to mirror
-    repos = fetch_github_repos()
-    print(f"Found {len(repos)} repositories to mirror.")
-    
+    # Parse comma-separated users/orgs
+    users = [u.strip() for u in GITHUB_USER.split(",") if u.strip()]
+    all_repos = []
+
+    # Fetch repos for each user/org
+    for user in users:
+        repos = fetch_github_repos(user)
+        print(f"Found {len(repos)} repositories for '{user}'.")
+        for name in repos:
+            all_repos.append((user, name))
+
     # Iterate and mirror each repo
-    for name in repos:
-        print(f"Mirroring '{name}'…", end=" ")
+    for user, name in all_repos:
+        print(f"Mirroring '{user}/{name}'…", end=" ")
         try:
             proj_id = create_gitlab_project(name)
-            setup_pull_mirror(proj_id, name)
+            setup_pull_mirror(proj_id, name, user)
             print("Done.")
         except Exception as e:
             print(f"Error: {e}")
+
 
 if __name__ == "__main__":
     main()
