@@ -71,7 +71,6 @@ def create_gitlab_project(name):
     print(f"[INFO] Created project '{name}' with ID {proj_id}.")
     return proj_id
 
-
 def setup_pull_mirror(project_id, repo_name, user):
     url = f"{GITLAB_URL}/api/v4/projects/{project_id}/remote_mirrors"
     payload = {
@@ -82,7 +81,6 @@ def setup_pull_mirror(project_id, repo_name, user):
     }
     r = requests.post(url, headers=gl_headers, data=payload)
     r.raise_for_status()
-}
 
 def main():
     users = [u.strip() for u in GITHUB_USER.split(",") if u.strip()]
