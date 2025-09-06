@@ -9,8 +9,9 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     env:
-      GITHUB_USER: "mao1910,le-fork"            # ← your GitHub username, organization or both
-      GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}        # Your GitHub PAT stored as GH_PAT
+      GITHUB_USER: "mao1910,le-fork"             # GitHub usernames/orgs
+      GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}  # Your GitLab PAT
       GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
     steps:
       - uses: actions/checkout@v3
