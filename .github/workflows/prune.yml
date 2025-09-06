@@ -1,0 +1,44 @@
+name: Prune stale GitLab projects
+
+on:
+  workflow_dispatch:         # manual trigger
+  schedule:
+    - cron: '0 3 * * 0'       # optional weekly prune at Sunday 03:00 UTC
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Restore prune state cache
+        uses: actions/cache@v3
+        with:
+          path: prune_state.json
+          key: prune-state
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install requests
+
+      - name: Dry-run prune
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
+          PRUNE_EXCLUDE: ${{ secrets.PRUNE_EXCLUDE }}
+          DRY_RUN: "true"        # change to "false" for actual deletes
+          GRACE_DAYS: "7"        # adjust as needed
+        run: python prune_repos.py
+
+      - name: Save prune state cache
+        uses: actions/cache@v3
+        with:
+          path: prune_state.json
+          key: prune-state
