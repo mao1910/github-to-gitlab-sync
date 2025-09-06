@@ -2,12 +2,16 @@ name: Mirror to GitLab
 
 on:
   schedule:
-    - cron: '0 2 * * *'       # daily at 02:00 UTC
-  workflow_dispatch:         # allows manual trigger
+    - cron: '0 2 * * *'
+  workflow_dispatch:
 
 jobs:
   mirror:
     runs-on: ubuntu-latest
+    env:
+      GITHUB_USER: "mao1910,le-fork"            # ← your GitHub username, organization or both
+      GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+      GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
     steps:
       - uses: actions/checkout@v3
 
@@ -22,8 +26,4 @@ jobs:
           pip install requests
 
       - name: Mirror repositories to GitLab
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
-          GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
         run: python mirror_repos.py
