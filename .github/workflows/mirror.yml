@@ -9,9 +9,9 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     env:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-      GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
-      GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}         # GitHub PAT
+      GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}   # GitLab PAT with api+write_repository
+      GITLAB_GROUP_PATH: my-group                 # <-- Your GitLab group path (not ID)
       GITHUB_USER: "mao1910,le-fork"
     steps:
       - uses: actions/checkout@v3
@@ -29,40 +29,37 @@ jobs:
       - name: Create GitLab projects
         run: python mirror_repos.py
 
-      - name: Push repos to GitLab
+      - name: Mirror via push
+        shell: bash
         run: |
-          # Configure git
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          
-          # Split users and mirror each repo
+
           IFS=',' read -ra USERS <<< "$GITHUB_USER"
           for user in "${USERS[@]}"; do
-            user=$(echo "$user" | xargs)  # trim whitespace
-            echo "Processing repos for user: $user"
+            user=$(echo "$user" | xargs)
+            echo "Processing repos for $user"
             
-            # Get repos for this user
+            # List repos from GitHub
             repos=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
               "https://api.github.com/users/$user/repos?per_page=100&type=all" | \
               jq -r '.[].name')
-            
+
             for repo in $repos; do
-              # Skip dot-prefixed repos
               if [[ "$repo" == .* ]]; then
                 echo "Skipping hidden repo: $user/$repo"
                 continue
               fi
-              
-              echo "Pushing $user/$repo to GitLab..."
-              
-              # Clone and push
-              git clone --mirror "https://oauth2:$GITHUB_TOKEN@github.com/$user/$repo.git" || continue
-              cd "$repo.git"
-              
-              # Push to GitLab (suppress output to avoid token leaking)
-              git push --mirror "https://oauth2:$GITLAB_TOKEN@gitlab.com/groups/$GITLAB_GROUP_ID/$repo.git" 2>/dev/null || echo "Push failed for $repo"
-              
+
+              echo "Cloning https://github.com/$user/$repo.git"
+              git clone --mirror "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"
+
+              cd "${repo}.git"
+              echo "Pushing to GitLab group/$repo"
+              git push --mirror \
+                "https://oauth2:${GITLAB_TOKEN}@gitlab.com/mao191-group/${repo}.git"
               cd ..
-              rm -rf "$repo.git"
+
+              rm -rf "${repo}.git"
             done
           done
