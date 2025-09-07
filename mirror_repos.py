@@ -16,7 +16,6 @@ GITLAB_GROUP_ID = os.environ.get("GITLAB_GROUP_ID") # Numeric GitLab group ID
 gh_headers = {"Authorization": f"token {GITHUB_TOKEN}"}
 gl_headers = {"PRIVATE-TOKEN": GITLAB_TOKEN}
 
-
 def fetch_github_repos(user):
     """
     Fetch all repositories for a GitHub user/org, handling pagination
@@ -24,7 +23,6 @@ def fetch_github_repos(user):
     """
     repos = []
     page = 1
-
     while True:
         resp = requests.get(
             f"https://api.github.com/users/{user}/repos",
@@ -35,7 +33,6 @@ def fetch_github_repos(user):
         data = resp.json()
         if not data:
             break
-
         for repo in data:
             if repo["owner"]["login"].lower() == user.lower():
                 repos.append({
@@ -44,7 +41,6 @@ def fetch_github_repos(user):
                     "size_kb": repo["size"]
                 })
         page += 1
-
         # Pause if nearing GitHub rate limit
         remaining = int(resp.headers.get("X-RateLimit-Remaining", 1))
         if remaining < 5:
@@ -52,9 +48,7 @@ def fetch_github_repos(user):
             sleep_for = max(reset - int(time.time()) + 30, 30)
             print(f"[INFO] Rate limit low ({remaining}), sleeping {sleep_for}s")
             time.sleep(sleep_for)
-
     return repos
-
 
 def get_existing_project_id(name):
     """
@@ -65,12 +59,10 @@ def get_existing_project_id(name):
     params = {"search": name, "simple": True}
     resp = requests.get(url, headers=gl_headers, params=params)
     resp.raise_for_status()
-
     for proj in resp.json():
         if proj["name"].lower() == name.lower():
             return proj["id"]
     return None
-
 
 def create_gitlab_project(name, description=None):
     """
@@ -104,7 +96,6 @@ def create_gitlab_project(name, description=None):
     print(f"[INFO] Created project '{name}' (ID {proj_id})")
     return proj_id
 
-
 def setup_pull_mirror(project_id, repo_name, user):
     """
     Configure GitLab to pull-mirror from the GitHub repo.
@@ -119,7 +110,6 @@ def setup_pull_mirror(project_id, repo_name, user):
     resp = requests.post(url, headers=gl_headers, data=payload)
     resp.raise_for_status()
     print(f"[INFO] Mirror configured for {user}/{repo_name}")
-
 
 def main():
     """
@@ -136,6 +126,7 @@ def main():
         print(f"[INFO] Fetching repos for '{user}'")
         repos = fetch_github_repos(user)
         print(f"[INFO] Found {len(repos)} repos for '{user}'")
+
         # Prioritize most recently updated
         repos.sort(key=lambda r: r["updated_at"], reverse=True)
         for r in repos:
@@ -145,7 +136,6 @@ def main():
         if name.startswith("."):
             print(f"[INFO] Skipping hidden repo '{user}/{name}'")
             continue
-
         print(f"[INFO] Processing '{user}/{name}' …", end=" ")
         try:
             proj_id = create_gitlab_project(
@@ -159,7 +149,6 @@ def main():
 
         # Throttle calls
         time.sleep(2)
-
 
 if __name__ == "__main__":
     main()
