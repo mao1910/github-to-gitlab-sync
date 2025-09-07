@@ -1,24 +1,21 @@
 name: Mirror to GitLab
+
 on:
   schedule:
-    - cron: '0 2 * * *'        # Daily at 02:00 UTC
-  workflow_dispatch:           # Manual trigger
+    - cron: '0 2 * * *'
+  workflow_dispatch:
 
 jobs:
   mirror:
     runs-on: ubuntu-latest
-    timeout-minutes: 720       # Extend to 12 hours
     env:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}           # GitHub PAT (repo scope)
-      GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}     # GitLab PAT (api + write_repository)
-      GITLAB_URL: "https://gitlab.com"
-      GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}   # Numeric group ID
-      GITLAB_GROUP_PATH: "my-group"                    # URL‐path namespace
-      GITHUB_USER: "mao1910,le-fork"                   # Comma-separated GitHub users/orgs
-
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}         # GitHub PAT
+      GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}   # GitLab PAT with api+write_repository
+      GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
+      GITLAB_GROUP_PATH: my-group                 # <-- Your GitLab group path (not ID)
+      GITHUB_USER: "mao1910,le-fork"
     steps:
-      - name: Checkout this workflow
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -29,83 +26,35 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install requests
+      - name: Create GitLab projects
+        run: python mirror_repos.py
 
-      - name: Copy mirroring script
-        run: mkdir -p scripts && cp mirror_repos.py scripts/
-
-      - name: Create GitLab projects & configure pull mirrors
-        run: python scripts/mirror_repos.py
-
-      - name: Run git‐fetch & push mirroring (fallback)
-        if: always()
+      - name: Mirror via push
         shell: bash
         run: |
-          mkdir -p logs
-          {
-            git config --global user.name "GitHub Actions"
-            git config --global user.email "actions@github.com"
-            git config --global http.postBuffer 524288000
-            git config --global http.lowSpeedLimit 1000
-            git config --global http.lowSpeedTime 300
-
-            success=()
-            failed=()
-            IFS=',' read -ra USERS <<< "$GITHUB_USER"
-            for user in "${USERS[@]}"; do
-              user="${user//[[:space:]]/}"
-              echo "=== Processing user: $user ==="
-              repos=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                "https://api.github.com/users/$user/repos?per_page=100&type=all" | \
-                jq -r '.[].name')
-              for repo in $repos; do
-                if [[ "$repo" == .* ]]; then
-                  echo "Skipping hidden repo: $user/$repo"
-                  continue
-                fi
-
-                echo "Initializing bare repo for $user/$repo …"
-                rm -rf "${repo}.git"
-                git init --bare "${repo}.git"
-
-                cd "${repo}.git"
-                git remote add origin "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"
-                echo "Fetching $user/$repo refs…"
-                if ! git fetch --all --tags --prune --no-recurse-submodules; then
-                  echo "❌ Fetch failed: $user/$repo"
-                  failed+=("$user/$repo")
-                  cd ..
-                  continue
-                fi
-
-                echo "Pushing $user/$repo → GitLab"
-                if ! timeout 3600 git push --force --mirror \
-                    "https://oauth2:${GITLAB_TOKEN}@gitlab.com/${GITLAB_GROUP_PATH}/${repo}.git"; then
-                  echo "❌ Push failed: $user/$repo"
-                  failed+=("$user/$repo")
-                else
-                  echo "✅ Success: $user/$repo"
-                  success+=("$user/$repo")
-                fi
-
-                cd ..
-                rm -rf "${repo}.git"
-                sleep 10
-              done
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          IFS=',' read -ra USERS <<< "$GITHUB_USER"
+          for user in "${USERS[@]}"; do
+            user=$(echo "$user" | xargs)
+            echo "Processing repos for $user"
+            
+            # List repos from GitHub
+            repos=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/users/$user/repos?per_page=100&type=all" | \
+              jq -r '.[].name')
+            for repo in $repos; do
+              if [[ "$repo" == .* ]]; then
+                echo "Skipping hidden repo: $user/$repo"
+                continue
+              fi
+              echo "Cloning https://github.com/$user/$repo.git"
+              git clone --mirror "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"
+              cd "${repo}.git"
+              echo "Pushing to GitLab group/$repo"
+              git push --mirror \
+                "https://oauth2:${GITLAB_TOKEN}@gitlab.com/mao191-group/${repo}.git"
+              cd ..
+              rm -rf "${repo}.git"
             done
-
-            echo "=== SUMMARY ==="
-            echo "Succeeded: ${#success[@]}"
-            echo "Failed:    ${#failed[@]}"
-            if [ ${#failed[@]} -gt 0 ]; then
-              echo "Failed repos:"
-              printf '%s\n' "${failed[@]}"
-              exit 1
-            fi
-          } 2>&1 | tee logs/mirror.log
-
-      - name: Upload mirror logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mirror-logs
-          path: logs/mirror.log
+          done
