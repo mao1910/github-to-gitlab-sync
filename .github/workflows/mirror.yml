@@ -3,7 +3,6 @@ on:
   schedule:
     - cron: '0 2 * * *'
   workflow_dispatch:
-
 jobs:
   mirror:
     runs-on: ubuntu-latest
@@ -13,26 +12,20 @@ jobs:
       GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
       GITLAB_GROUP_PATH: my-group
       GITHUB_USER: "mao1910,le-fork"
-
     steps:
       - uses: actions/checkout@v3
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
-
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install requests
-
       - name: Create GitLab projects
         run: python mirror_repos.py
-
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
-
       - name: Mirror via push
         shell: bash
         run: |
@@ -42,7 +35,6 @@ jobs:
           for user in "${USERS[@]}"; do
             user=$(echo "$user" | xargs)
             echo "Processing repos for $user"
-
             repos=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
               "https://api.github.com/users/$user/repos?per_page=100&type=all" | \
               jq -r '.[].name')
@@ -50,6 +42,16 @@ jobs:
               if [[ "$repo" == .* ]]; then
                 continue
               fi
+
+              # Check if GitLab project exists before pushing
+              status=$(curl -s -o /dev/null -w '%{http_code}' \
+                -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+                "https://gitlab.com/api/v4/projects/${GITLAB_GROUP_ID}%2F${repo}")
+              if [[ "$status" != "200" ]]; then
+                echo "Skipping $repo: GitLab project not found (HTTP $status)"
+                continue
+              fi
+
               git clone --mirror \
                 "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"
               cd "${repo}.git"
