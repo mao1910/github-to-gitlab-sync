@@ -3,6 +3,7 @@ on:
   schedule:
     - cron: '0 2 * * *'
   workflow_dispatch:
+
 jobs:
   mirror:
     runs-on: ubuntu-latest
@@ -14,23 +15,29 @@ jobs:
       GITHUB_USER: "mao1910,le-fork"
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install requests
+
       - name: Create GitLab projects
         run: python mirror_repos.py
+
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
-      - name: Mirror via push
+
+      - name: Mirror via push (fallback)
         shell: bash
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+
           IFS=',' read -ra USERS <<< "$GITHUB_USER"
           for user in "${USERS[@]}"; do
             user=$(echo "$user" | xargs)
@@ -38,15 +45,17 @@ jobs:
             repos=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
               "https://api.github.com/users/$user/repos?per_page=100&type=all" | \
               jq -r '.[].name')
+
             for repo in $repos; do
               if [[ "$repo" == .* ]]; then
                 continue
               fi
 
-              # Check if GitLab project exists before pushing
+              # Check that the GitLab project exists before pushing
+              proj_encoded=$(echo "${GITLAB_GROUP_PATH}/${repo}" | sed 's#/#%2F#g')
               status=$(curl -s -o /dev/null -w '%{http_code}' \
                 -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-                "https://gitlab.com/api/v4/projects/${GITLAB_GROUP_ID}%2F${repo}")
+                "https://gitlab.com/api/v4/projects/${proj_encoded}")
               if [[ "$status" != "200" ]]; then
                 echo "Skipping $repo: GitLab project not found (HTTP $status)"
                 continue
