@@ -8,8 +8,8 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     env:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}         # GitHub PAT (repo scope)
-      GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}   # GitLab PAT (api+write_repository)
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
       GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
       GITLAB_GROUP_PATH: my-group
       GITHUB_USER: "mao1910,le-fork"
@@ -27,21 +27,22 @@ jobs:
           pip install --upgrade pip
           pip install requests
 
-      - name: Create GitLab projects & configure pull mirrors
+      - name: Create GitLab projects
         run: python mirror_repos.py
 
-      - name: Install jq for fallback
+      - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Push any unmatched repos (fallback)
+      - name: Mirror via push
         shell: bash
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-
           IFS=',' read -ra USERS <<< "$GITHUB_USER"
           for user in "${USERS[@]}"; do
-            echo "Processing $user via push-mirror fallback"
+            user=$(echo "$user" | xargs)
+            echo "Processing repos for $user"
+
             repos=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
               "https://api.github.com/users/$user/repos?per_page=100&type=all" | \
               jq -r '.[].name')
@@ -49,7 +50,6 @@ jobs:
               if [[ "$repo" == .* ]]; then
                 continue
               fi
-              echo "Cloning and pushing $user/$repo"
               git clone --mirror \
                 "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"
               cd "${repo}.git"
