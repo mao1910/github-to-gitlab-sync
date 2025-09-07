@@ -10,8 +10,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
-      GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
-      GITLAB_GROUP_PATH: my-group
+      GITLAB_GROUP_PATH: mao191-group
       GITHUB_USER: "mao1910,le-fork"
     steps:
       - uses: actions/checkout@v3
@@ -26,7 +25,7 @@ jobs:
           pip install --upgrade pip
           pip install requests
 
-      - name: Create GitLab projects
+      - name: Create GitLab projects & configure pull mirrors
         run: python mirror_repos.py
 
       - name: Install jq
@@ -51,21 +50,20 @@ jobs:
                 continue
               fi
 
-              # Check that the GitLab project exists before pushing
-              proj_encoded=$(echo "${GITLAB_GROUP_PATH}/${repo}" | sed 's#/#%2F#g')
+              # Check if project exists via group path + repo name
+              proj_encoded=$(echo "mao191-group/${repo}" | sed 's#/#%2F#g')
               status=$(curl -s -o /dev/null -w '%{http_code}' \
                 -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
                 "https://gitlab.com/api/v4/projects/${proj_encoded}")
+
               if [[ "$status" != "200" ]]; then
                 echo "Skipping $repo: GitLab project not found (HTTP $status)"
                 continue
               fi
 
-              git clone --mirror \
-                "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"
+              git clone --mirror "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"
               cd "${repo}.git"
-              git push --mirror \
-                "https://oauth2:${GITLAB_TOKEN}@gitlab.com/${GITLAB_GROUP_PATH}/${repo}.git"
+              git push --mirror "https://oauth2:${GITLAB_TOKEN}@gitlab.com/mao191-group/${repo}.git"
               cd ..
               rm -rf "${repo}.git"
             done
