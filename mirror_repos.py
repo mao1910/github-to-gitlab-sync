@@ -13,10 +13,15 @@ gh_headers = {"Authorization": f"token {GITHUB_TOKEN}"}
 gl_headers = {"PRIVATE-TOKEN": GITLAB_TOKEN}
 
 def fetch_github_repos(user):
+    """
+    Fetch all repositories for a given GitHub user/org, handling pagination.
+    When authenticated with a PAT belonging to that user, this will include private repos.
+    """
     repos, page = [], 1
     while True:
+        url = f"https://api.github.com/users/{user}/repos"
         r = requests.get(
-            "https://api.github.com/user/repos",
+            url,
             headers=gh_headers,
             params={"per_page": 100, "page": page, "type": "all"}
         )
@@ -25,10 +30,12 @@ def fetch_github_repos(user):
         if not data:
             break
         for repo in data:
+            # Only include repos owned by the specified user/org
             if repo["owner"]["login"].lower() == user.lower():
                 repos.append(repo["name"])
         page += 1
     return repos
+
 
 def get_existing_project_id(name):
     """
