@@ -37,10 +37,11 @@ jobs:
           mkdir -p scripts
           cp mirror_repos.py scripts/
 
-      - name: Create GitLab projects & configure mirrors
+      - name: Create GitLab projects & configure pull mirrors
         run: python scripts/mirror_repos.py
 
-      - name: Run git‐clone & push mirroring (fallback)
+      - name: Run git‐fetch & push mirroring (fallback)
+        if: always()
         shell: bash
         run: |
           mkdir -p logs
@@ -50,8 +51,6 @@ jobs:
             git config --global http.postBuffer 524288000
             git config --global http.lowSpeedLimit 1000
             git config --global http.lowSpeedTime 300
-            git config --global remote.origin.fetch "+refs/heads/*:refs/heads/*"
-            git config --global --add remote.origin.fetch "+refs/tags/*:refs/tags/*"
 
             success=()
             failed=()
@@ -67,16 +66,21 @@ jobs:
                   echo "Skipping hidden repo: $user/$repo"
                   continue
                 fi
-                echo "Cloning $user/$repo …"
-                if ! timeout 3600 git clone --mirror \
-                    "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"; then
-                  echo "❌ Clone failed: $user/$repo"
+
+                echo "Initializing bare repo for $user/$repo …"
+                rm -rf "${repo}.git"
+                git init --bare "${repo}.git"
+
+                cd "${repo}.git"
+                git remote add origin "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"
+                echo "Fetching $user/$repo refs…"
+                if ! git fetch --all --tags --prune --no-recurse-submodules; then
+                  echo "❌ Fetch failed: $user/$repo"
                   failed+=("$user/$repo")
+                  cd ..
                   continue
                 fi
-                cd "${repo}.git"
-                git config remote.origin.fetch "+refs/heads/*:refs/heads/*"
-                git config --add remote.origin.fetch "+refs/tags/*:refs/tags/*"
+
                 echo "Pushing $user/$repo → GitLab"
                 if ! timeout 3600 git push --force --mirror \
                     "https://oauth2:${GITLAB_TOKEN}@gitlab.com/${GITLAB_GROUP_ID}/${repo}.git"; then
@@ -86,11 +90,13 @@ jobs:
                   echo "✅ Success: $user/$repo"
                   success+=("$user/$repo")
                 fi
+
                 cd ..
                 rm -rf "${repo}.git"
                 sleep 10
               done
             done
+
             echo "=== SUMMARY ==="
             echo "Succeeded: ${#success[@]}"
             echo "Failed:    ${#failed[@]}"
