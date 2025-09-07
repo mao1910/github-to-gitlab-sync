@@ -1,15 +1,16 @@
+#!/usr/bin/env python3
 import os
 import requests
 import time
 import sys
 
 # ====== Configuration (from CI/CD variables) ======
-GITHUB_TOKEN    = os.environ["GITHUB_TOKEN"]       # GitHub PAT (repo scope)
-GITHUB_USER     = os.environ["GITHUB_USER"]        # Comma-separated GitHub usernames/orgs
-GITLAB_TOKEN    = os.environ["GITLAB_TOKEN"]       # GitLab PAT (api + write_repository)
+GITHUB_TOKEN    = os.environ.get("GITHUB_TOKEN")    # GitHub PAT (repo scope)
+GITHUB_USER     = os.environ.get("GITHUB_USER")     # Comma-separated GitHub usernames/orgs
+GITLAB_TOKEN    = os.environ.get("GITLAB_TOKEN")    # GitLab PAT (api + write_repository)
 GITLAB_URL      = os.environ.get("GITLAB_URL", "https://gitlab.com")
-GITLAB_GROUP_ID = os.environ["GITLAB_GROUP_ID"]    # Numeric GitLab group ID
-# ===================================================
+GITLAB_GROUP_ID = os.environ.get("GITLAB_GROUP_ID") # Numeric GitLab group ID
+# ======================================================
 
 # HTTP headers
 gh_headers = {"Authorization": f"token {GITHUB_TOKEN}"}
@@ -18,8 +19,8 @@ gl_headers = {"PRIVATE-TOKEN": GITLAB_TOKEN}
 
 def fetch_github_repos(user):
     """
-    Fetch all repositories for a given GitHub user/org,
-    handling pagination and filtering by owner.
+    Fetch all repositories for a GitHub user/org, handling pagination
+    and filtering by owner.
     """
     repos = []
     page = 1
@@ -44,7 +45,7 @@ def fetch_github_repos(user):
                 })
         page += 1
 
-        # Rate-limit safeguard: pause if nearing GitHub rate limit
+        # Pause if nearing GitHub rate limit
         remaining = int(resp.headers.get("X-RateLimit-Remaining", 1))
         if remaining < 5:
             reset = int(resp.headers.get("X-RateLimit-Reset", time.time() + 60))
@@ -73,8 +74,7 @@ def get_existing_project_id(name):
 
 def create_gitlab_project(name, description=None):
     """
-    Create a new GitLab project under the specified group,
-    or return the ID of an existing project if already present.
+    Create a new GitLab project or return existing project ID.
     """
     existing_id = get_existing_project_id(name)
     if existing_id:
@@ -85,18 +85,18 @@ def create_gitlab_project(name, description=None):
         "name": name,
         "namespace_id": GITLAB_GROUP_ID,
         "visibility": "private",
-        "description": description or f"Mirrored from GitHub: {name}"
+        "description": description or f"Mirror of https://github.com/{name}"
     }
     url = f"{GITLAB_URL}/api/v4/projects"
     resp = requests.post(url, headers=gl_headers, data=payload)
 
     if resp.status_code == 400:
-        # Handle “already taken” error gracefully
+        # Handle “already taken” conflict
         msg = resp.json().get("message", {})
         if any("has already been taken" in str(vals) for vals in msg.values()):
             fallback_id = get_existing_project_id(name)
             if fallback_id:
-                print(f"[INFO] Conflict: using existing project ID {fallback_id}")
+                print(f"[INFO] Conflict resolved: using existing ID {fallback_id}")
                 return fallback_id
 
     resp.raise_for_status()
@@ -107,7 +107,7 @@ def create_gitlab_project(name, description=None):
 
 def setup_pull_mirror(project_id, repo_name, user):
     """
-    Configure GitLab to pull-mirror from the GitHub repository.
+    Configure GitLab to pull-mirror from the GitHub repo.
     """
     url = f"{GITLAB_URL}/api/v4/projects/{project_id}/remote_mirrors"
     payload = {
@@ -123,26 +123,24 @@ def setup_pull_mirror(project_id, repo_name, user):
 
 def main():
     """
-    Main entry point: iterate over users, create projects,
-    and configure pull mirrors.
+    Main entry: iterate users, create projects, and setup mirrors.
     """
-    users = [u.strip() for u in GITHUB_USER.split(",") if u.strip()]
-    if not users:
-        print("[ERROR] No GitHub users provided; set GITHUB_USER")
+    if not (GITHUB_TOKEN and GITHUB_USER and GITLAB_TOKEN and GITLAB_GROUP_ID):
+        print("[ERROR] Missing required environment variables.")
         sys.exit(1)
 
-    # Gather all repos across users
+    users = [u.strip() for u in GITHUB_USER.split(",") if u.strip()]
     all_repos = []
+
     for user in users:
-        print(f"[INFO] Fetching GitHub repos for '{user}'")
+        print(f"[INFO] Fetching repos for '{user}'")
         repos = fetch_github_repos(user)
-        print(f"[INFO] {len(repos)} repos found for '{user}'")
-        # Sort by last update so active repos get mirrored first
+        print(f"[INFO] Found {len(repos)} repos for '{user}'")
+        # Prioritize most recently updated
         repos.sort(key=lambda r: r["updated_at"], reverse=True)
         for r in repos:
             all_repos.append((user, r["name"]))
 
-    # Create and configure mirrors
     for user, name in all_repos:
         if name.startswith("."):
             print(f"[INFO] Skipping hidden repo '{user}/{name}'")
@@ -150,14 +148,16 @@ def main():
 
         print(f"[INFO] Processing '{user}/{name}' …", end=" ")
         try:
-            proj_id = create_gitlab_project(name,
-                                            description=f"Mirror of https://github.com/{user}/{name}")
+            proj_id = create_gitlab_project(
+                name,
+                description=f"Mirror of https://github.com/{user}/{name}"
+            )
             setup_pull_mirror(proj_id, name, user)
             print("Done")
         except Exception as e:
             print(f"Error: {e}")
 
-        # Throttle GitLab API calls
+        # Throttle calls
         time.sleep(2)
 
 
