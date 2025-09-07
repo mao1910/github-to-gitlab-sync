@@ -12,8 +12,9 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}           # GitHub PAT (repo scope)
       GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}     # GitLab PAT (api + write_repository)
       GITLAB_URL: "https://gitlab.com"
-      GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
-      GITHUB_USER: "mao1910,le-fork"                # Comma-separated GitHub users/orgs
+      GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}   # Numeric group ID
+      GITLAB_GROUP_PATH: "my-group"                    # URL‐path namespace
+      GITHUB_USER: "mao1910,le-fork"                   # Comma-separated GitHub users/orgs
 
     steps:
       - name: Checkout this workflow
@@ -29,13 +30,8 @@ jobs:
           pip install --upgrade pip
           pip install requests
 
-      - name: Add jq for JSON parsing
-        run: sudo apt-get update && sudo apt-get install -y jq
-
       - name: Copy mirroring script
-        run: |
-          mkdir -p scripts
-          cp mirror_repos.py scripts/
+        run: mkdir -p scripts && cp mirror_repos.py scripts/
 
       - name: Create GitLab projects & configure pull mirrors
         run: python scripts/mirror_repos.py
@@ -83,7 +79,7 @@ jobs:
 
                 echo "Pushing $user/$repo → GitLab"
                 if ! timeout 3600 git push --force --mirror \
-                    "https://oauth2:${GITLAB_TOKEN}@gitlab.com/${GITLAB_GROUP_ID}/${repo}.git"; then
+                    "https://oauth2:${GITLAB_TOKEN}@gitlab.com/${GITLAB_GROUP_PATH}/${repo}.git"; then
                   echo "❌ Push failed: $user/$repo"
                   failed+=("$user/$repo")
                 else
