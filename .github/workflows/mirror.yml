@@ -1,5 +1,4 @@
 name: Mirror to GitLab
-
 on:
   schedule:
     - cron: '0 2 * * *'
@@ -9,10 +8,10 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     env:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}         # GitHub PAT
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}         # GitHub PAT (repo scope)
       GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}   # GitLab PAT with api+write_repository
       GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
-      GITLAB_GROUP_PATH: my-group                 # <-- Your GitLab group path (not ID)
+      GITLAB_GROUP_PATH: my-group                 # Your GitLab group path (not ID)
       GITHUB_USER: "mao1910,le-fork"
     steps:
       - uses: actions/checkout@v3
@@ -26,8 +25,12 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install requests
+
       - name: Create GitLab projects
         run: python mirror_repos.py
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Mirror via push
         shell: bash
@@ -38,10 +41,10 @@ jobs:
           for user in "${USERS[@]}"; do
             user=$(echo "$user" | xargs)
             echo "Processing repos for $user"
-            
-            # List repos from GitHub
+
+            # List all repos you have access to (public & private)
             repos=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-              "https://api.github.com/users/$user/repos?per_page=100&type=all" | \
+              "https://api.github.com/user/repos?per_page=100&type=all" | \
               jq -r '.[].name')
             for repo in $repos; do
               if [[ "$repo" == .* ]]; then
@@ -51,9 +54,9 @@ jobs:
               echo "Cloning https://github.com/$user/$repo.git"
               git clone --mirror "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"
               cd "${repo}.git"
-              echo "Pushing to GitLab group/$repo"
+              echo "Pushing to GitLab ${GITLAB_GROUP_PATH}/$repo"
               git push --mirror \
-                "https://oauth2:${GITLAB_TOKEN}@gitlab.com/mao191-group/${repo}.git"
+                "https://oauth2:${GITLAB_TOKEN}@gitlab.com/${GITLAB_GROUP_PATH}/${repo}.git"
               cd ..
               rm -rf "${repo}.git"
             done
