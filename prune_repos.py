@@ -9,7 +9,7 @@ with a configurable grace period and dry-run mode.
 import os
 import requests
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration via environment variables (set in the CI workflow)
@@ -125,7 +125,7 @@ def prune_deleted_repos():
     gh_names = fetch_github_repos()
     gl_projects = list_gitlab_projects()
     state = load_state()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # Refresh 'last seen' for still-active or excluded projects
     for name in gl_projects:
