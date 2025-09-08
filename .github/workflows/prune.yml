@@ -1,13 +1,24 @@
 name: Prune stale GitLab projects
 
 on:
-  workflow_dispatch:         # manual trigger
+  workflow_dispatch:          # Manual trigger
   schedule:
-    - cron: '0 3 * * 0'       # optional weekly prune at Sunday 03:00 UTC
+    - cron: '0 3 * * 0'        # Optional: run weekly Sunday at 03:00 UTC
 
 jobs:
   prune:
     runs-on: ubuntu-latest
+
+    env:
+      GH_PAT:             ${{ secrets.GH_PAT }}
+      GITHUB_TOKEN:       ${{ secrets.GH_PAT }}         # alias for the script
+      GITLAB_TOKEN:       ${{ secrets.GITLAB_TOKEN }}
+      GITLAB_GROUP_ID:    ${{ secrets.GITLAB_GROUP_ID }}
+      GITHUB_USER:        "mao1910,le-fork"            # same as mirror job
+      PRUNE_EXCLUDE:      ${{ secrets.PRUNE_EXCLUDE }}   # e.g., mirror-scripts
+      DRY_RUN:            "true"                        # change to "false" to delete
+      GRACE_DAYS:         "7"                           # days to wait before deletion
+
     steps:
       - uses: actions/checkout@v3
 
@@ -28,13 +39,6 @@ jobs:
           pip install requests
 
       - name: Dry-run prune
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
-          GITLAB_GROUP_ID: ${{ secrets.GITLAB_GROUP_ID }}
-          PRUNE_EXCLUDE: ${{ secrets.PRUNE_EXCLUDE }}
-          DRY_RUN: "true"        # change to "false" for actual deletes
-          GRACE_DAYS: "7"        # adjust as needed
         run: python prune_repos.py
 
       - name: Save prune state cache
