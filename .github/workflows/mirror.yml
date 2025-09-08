@@ -1,58 +1,90 @@
 name: Mirror to GitLab
+
+# Trigger this workflow nightly at 03:00 UTC and also allow manual dispatch
 on:
   schedule:
-    - cron: '0 2 * * *'
-  workflow_dispatch:
+    - cron: '0 3 * * *'        # Adjust cron schedule as needed
+  workflow_dispatch:           # Allows manual run from Actions tab
 
 jobs:
   mirror:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest     # Use the latest Ubuntu runner
+
+    # Environment variables—update these for your own setup:
     env:
-      GITHUB_TOKEN:      ${{ secrets.GH_PAT }}
-      GITLAB_TOKEN:      ${{ secrets.GITLAB_TOKEN }}
-      GITLAB_GROUP_ID:   ${{ secrets.GITLAB_GROUP_ID }}
-      GITLAB_GROUP_PATH: mao191-group
-      GITHUB_USER:       "mao1910,le-fork"
+      GITHUB_TOKEN:      ${{ secrets.GH_PAT }}          # Required: GitHub PAT with “repo” scope
+      GITLAB_TOKEN:      ${{ secrets.GITLAB_TOKEN }}    # Required: GitLab PAT with api+write_repository
+      GITLAB_GROUP_ID:   ${{ secrets.GITLAB_GROUP_ID }} # Required: Numeric GitLab group ID (e.g., “123456”)
+      GITLAB_GROUP_PATH: mao191-group                   # GitLab namespace path (public) — change to your group
+      GITHUB_USER:       "mao1910,le-fork"              # Comma-separated GitHub usernames to mirror
+
     steps:
       - uses: actions/checkout@v3
+        # Check out the workflow repository so we can run the Python script
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.x'   # Use Python 3
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install requests
+          pip install requests   # Required by mirror_repos.py
 
       - name: Create GitLab projects & configure pull mirrors
         run: python mirror_repos.py
+        # Runs the Python script that:
+        # 1) Fetches all repos (private, owned, public forks)
+        # 2) Creates any missing GitLab projects under your group
+        # 3) Configures GitLab pull mirrors for each repo
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
+        # jq is used in the fallback step to parse JSON
 
       - name: Mirror via push (fallback)
         shell: bash
         run: |
+          # Ensure commits are attributed to “GitHub Actions”
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          # Reconstruct same combined list
+
+          # Prepare combined list of repos:
           owner="${GITHUB_USER%%,*}"
-          owned=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/user/repos?per_page=100&sort=updated" | jq -r '.[] | "\(.owner.login) \(.name)"')
-          public=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/users/${owner}/repos?per_page=100&sort=updated" | jq -r '.[] | "\(.owner.login) \(.name)"')
+          # 1) All private & owned repos
+          owned=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/user/repos?per_page=100&sort=updated" \
+            | jq -r '.[] | "\(.owner.login) \(.name)"')
+          # 2) All public repos under the first username (including forks)
+          public=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/users/${owner}/repos?per_page=100&sort=updated" \
+            | jq -r '.[] | "\(.owner.login) \(.name)"')
+          # Combine and dedupe
           combined=$(printf "%s\n%s" "$owned" "$public" | sort -u)
 
+          # Clone & push each repo that exists in GitLab
           while read user repo; do
-            if [[ "$repo" == .* ]]; then continue; fi
-            enc=$(echo "${GITLAB_GROUP_PATH}/${repo}" | sed 's#/#%2F#g')
-            code=$(curl -s -o /dev/null -w '%{http_code}' -H "PRIVATE-TOKEN: $GITLAB_TOKEN" "https://gitlab.com/api/v4/projects/${enc}")
-            if [[ "$code" != "200" ]]; then
-              echo "Skipping $repo"
+            # Skip hidden repos (dot-prefixed)
+            if [[ "$repo" == .* ]]; then
               continue
             fi
+
+            # Check GitLab for this project by URL-encoded path
+            enc=$(echo "${GITLAB_GROUP_PATH}/${repo}" | sed 's#/#%2F#g')
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+              "https://gitlab.com/api/v4/projects/${enc}")
+            if [[ "$code" != "200" ]]; then
+              echo "Skipping $repo (not found in GitLab)"
+              continue
+            fi
+
+            # Mirror via Git push:
             git clone --mirror "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"
             cd "${repo}.git"
             git push --mirror "https://oauth2:${GITLAB_TOKEN}@gitlab.com/${GITLAB_GROUP_PATH}/${repo}.git"
-            cd .. && rm -rf "${repo}.git"
+            cd ..
+            rm -rf "${repo}.git"
           done <<< "$combined"
+        # End of fallback push step
