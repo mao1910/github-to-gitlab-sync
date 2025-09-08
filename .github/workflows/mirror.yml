@@ -10,6 +10,7 @@ jobs:
     env:
       GITHUB_TOKEN:      ${{ secrets.GH_PAT }}
       GITLAB_TOKEN:      ${{ secrets.GITLAB_TOKEN }}
+      GITLAB_GROUP_ID:   ${{ secrets.GITLAB_GROUP_ID }}
       GITLAB_GROUP_PATH: ${{ secrets.GITLAB_GROUP_PATH }}  # "mao191-group"
       GITHUB_USER:       "mao1910,le-fork"
     steps:
@@ -36,35 +37,22 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+          # Reconstruct same combined list
+          owner="${GITHUB_USER%%,*}"
+          owned=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/user/repos?per_page=100&sort=updated" | jq -r '.[] | "\(.owner.login) \(.name)"')
+          public=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/users/${owner}/repos?per_page=100&sort=updated" | jq -r '.[] | "\(.owner.login) \(.name)"')
+          combined=$(printf "%s\n%s" "$owned" "$public" | sort -u)
 
-          # Re-fetch same combined list from GitHub
-          repos=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/user/repos?per_page=100&affiliation=owner" | \
-            jq -r '.[] | "\(.owner.login) \(.name)"')
-
-          owner_public="${GITHUB_USER%%,*}"
-          public_repos=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/users/${owner_public}/repos?per_page=100" | \
-            jq -r '.[] | "\(.owner.login) \(.name)"')
-
-          combined=$(printf "%s\n%s" "$repos" "$public_repos" | sort -u)
-
-          while read owner name; do
-            if [[ "$name" == .* ]]; then continue; fi
-
-            # Check project existence
-            enc=$(echo "${GITLAB_GROUP_PATH}/${name}" | sed 's#/#%2F#g')
-            code=$(curl -s -o /dev/null -w '%{http_code}' \
-              -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-              "https://gitlab.com/api/v4/projects/${enc}")
+          while read user repo; do
+            if [[ "$repo" == .* ]]; then continue; fi
+            enc=$(echo "${GITLAB_GROUP_PATH}/${repo}" | sed 's#/#%2F#g')
+            code=$(curl -s -o /dev/null -w '%{http_code}' -H "PRIVATE-TOKEN: $GITLAB_TOKEN" "https://gitlab.com/api/v4/projects/${enc}")
             if [[ "$code" != "200" ]]; then
-              echo "Skipping ${name}: not found"
+              echo "Skipping $repo"
               continue
             fi
-
-            git clone --mirror "https://oauth2:${GITHUB_TOKEN}@github.com/${owner}/${name}.git"
-            cd "${name}.git"
-            git push --mirror "https://oauth2:${GITLAB_TOKEN}@gitlab.com/${GITLAB_GROUP_PATH}/${name}.git"
-            cd ..
-            rm -rf "${name}.git"
+            git clone --mirror "https://oauth2:${GITHUB_TOKEN}@github.com/${user}/${repo}.git"
+            cd "${repo}.git"
+            git push --mirror "https://oauth2:${GITLAB_TOKEN}@gitlab.com/${GITLAB_GROUP_PATH}/${repo}.git"
+            cd .. && rm -rf "${repo}.git"
           done <<< "$combined"
