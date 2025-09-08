@@ -1,4 +1,4 @@
-name: Prune stale GitLab projects
+name: Cleanup stale GitLab mirrors
 
 # Trigger manually or on a weekly schedule to clean up deleted repos
 on:
@@ -45,7 +45,7 @@ jobs:
         # Install required Python packages
 
       - name: Dry-run prune
-        run: python prune_repos.py
+        run: python cleanup_pruned_repos.py
         # Run the prune script in dry-run mode to preview deletions
 
       - name: Save prune state cache
