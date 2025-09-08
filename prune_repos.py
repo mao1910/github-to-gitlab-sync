@@ -56,12 +56,14 @@ def fetch_github_repos():
     Fetch all GitHub repos visible to the PAT (private & owned + public forks).
     Returns a set of repo names.
     """
-    owner = GITHUB_USER.split(",")[0].strip()
+    # Support multiple GitHub usernames for public repos
+    owners = [u.strip() for u in GITHUB_USER.split(",")]
+
     repos = set()
     page = 1
 
     while True:
-        # private & owned
+        # private & owned repos
         r1 = requests.get(
             "https://api.github.com/user/repos",
             headers=gh_headers,
@@ -70,14 +72,16 @@ def fetch_github_repos():
         r1.raise_for_status()
         data1 = r1.json()
 
-        # public (including forks) under primary owner
-        r2 = requests.get(
-            f"https://api.github.com/users/{owner}/repos",
-            headers=gh_headers,
-            params={"per_page": 100, "page": page, "type": "all", "sort": "updated"}
-        )
-        r2.raise_for_status()
-        data2 = r2.json()
+        # public (including forks) under each specified owner
+        data2 = []
+        for owner in owners:
+            r2 = requests.get(
+                f"https://api.github.com/users/{owner}/repos",
+                headers=gh_headers,
+                params={"per_page": 100, "page": page, "type": "all", "sort": "updated"}
+            )
+            r2.raise_for_status()
+            data2.extend(r2.json())
 
         combined = {repo["name"] for repo in (data1 + data2)}
         if not combined:
@@ -108,7 +112,7 @@ def prune_deleted_repos():
     state = load_state()
     now = datetime.utcnow()
 
-    # Update last-seen for existing or excluded
+    # Update last-seen for existing or excluded projects
     for name in gl_projects:
         if name in gh_names or name in EXCLUDE:
             state[name] = now.isoformat()
@@ -123,12 +127,12 @@ def prune_deleted_repos():
             if now - last_seen >= timedelta(days=GRACE_DAYS):
                 to_delete.append((name, proj_id))
         else:
-            # First detection of deletion
+            # First detection of deletion – record timestamp
             state[name] = now.isoformat()
 
     save_state(state)
 
-    # Report or delete
+    # Report or delete stale projects
     for name, proj_id in to_delete:
         if DRY_RUN:
             print(f"[DRY RUN] Would delete '{name}' (project ID {proj_id})")
