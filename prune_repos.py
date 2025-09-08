@@ -127,7 +127,9 @@ def prune_deleted_repos():
             if now - last_seen >= timedelta(days=GRACE_DAYS):
                 to_delete.append((name, proj_id))
         else:
-            # First detection of deletion – record timestamp
+            # First detection of deletion – record or delete immediately if GRACE_DAYS is 0
+            if GRACE_DAYS == 0:
+                to_delete.append((name, proj_id))
             state[name] = now.isoformat()
 
     save_state(state)
