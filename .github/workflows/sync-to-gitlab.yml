@@ -1,4 +1,4 @@
-name: Mirror to GitLab
+name: Sync GitHub → GitLab
 
 # Trigger this workflow nightly at 03:00 UTC and also allow manual dispatch
 on:
@@ -33,7 +33,7 @@ jobs:
           pip install requests   # Required by mirror_repos.py
 
       - name: Create GitLab projects & configure pull mirrors
-        run: python mirror_repos.py
+        run: python sync_repos.py
         # Runs the Python script that:
         # 1) Fetches all repos (private, owned, public forks)
         # 2) Creates any missing GitLab projects under your group
