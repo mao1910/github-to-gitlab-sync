@@ -1,33 +1,48 @@
+#!/usr/bin/env python3
+"""
+prune_repos.py
+
+Identifies and deletes stale GitLab mirror projects that no longer exist on GitHub,
+with a configurable grace period and dry-run mode.
+"""
+
 import os
 import requests
 import json
 from datetime import datetime, timedelta
 
-# ====== Configuration (from CI/CD variables) ======
-GITHUB_TOKEN    = os.environ["GITHUB_TOKEN"]
-GITLAB_TOKEN    = os.environ["GITLAB_TOKEN"]
-GITLAB_URL      = os.environ.get("GITLAB_URL", "https://gitlab.com")
-GITLAB_GROUP_ID = os.environ["GITLAB_GROUP_ID"]
-DRY_RUN         = os.environ.get("DRY_RUN", "true").lower() == "true"
-GRACE_DAYS      = int(os.environ.get("GRACE_DAYS", "7"))
-# Comma-separated list of project names to never delete
-EXCLUDE         = set(os.environ.get("PRUNE_EXCLUDE", "mirror-scripts").split(","))
-# ==================================================
+# ──────────────────────────────────────────────────────────────────────────────
+# Configuration via environment variables
+# ──────────────────────────────────────────────────────────────────────────────
+GITHUB_TOKEN     = os.environ["GITHUB_TOKEN"]       # GitHub PAT
+GITLAB_TOKEN     = os.environ["GITLAB_TOKEN"]       # GitLab PAT
+GITLAB_URL       = os.environ.get("GITLAB_URL", "https://gitlab.com")
+GITLAB_GROUP_ID  = os.environ["GITLAB_GROUP_ID"]    # Numeric GitLab group ID
+GITHUB_USER      = os.environ["GITHUB_USER"]        # Comma-separated GitHub usernames
+DRY_RUN          = os.environ.get("DRY_RUN", "true").lower() == "true"
+GRACE_DAYS       = int(os.environ.get("GRACE_DAYS", "7"))
+EXCLUDE          = set(os.environ.get("PRUNE_EXCLUDE", "mirror-scripts").split(","))
+STATE_FILE       = "prune_state.json"
+# ──────────────────────────────────────────────────────────────────────────────
 
 gl_headers = {"PRIVATE-TOKEN": GITLAB_TOKEN}
-STATE_FILE = "prune_state.json"
+gh_headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+
 
 def list_gitlab_projects():
-    """Return dict name → project ID."""
-    projects, page = {}, 1
+    """
+    Return dict of project_name → project_id for all projects in the GitLab group.
+    """
+    projects = {}
+    page = 1
     while True:
-        r = requests.get(
+        resp = requests.get(
             f"{GITLAB_URL}/api/v4/groups/{GITLAB_GROUP_ID}/projects",
             headers=gl_headers,
             params={"per_page": 100, "page": page}
         )
-        r.raise_for_status()
-        data = r.json()
+        resp.raise_for_status()
+        data = resp.json()
         if not data:
             break
         for p in data:
@@ -35,23 +50,44 @@ def list_gitlab_projects():
         page += 1
     return projects
 
+
 def fetch_github_repos():
-    """List all GitHub repo names visible to the PAT (personal + org)."""
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    repos, page = [], 1
+    """
+    Fetch all GitHub repos visible to the PAT (private & owned + public forks).
+    Returns a set of repo names.
+    """
+    owner = GITHUB_USER.split(",")[0].strip()
+    repos = set()
+    page = 1
+
     while True:
-        r = requests.get(
+        # private & owned
+        r1 = requests.get(
             "https://api.github.com/user/repos",
-            headers=headers,
-            params={"per_page": 100, "page": page, "type": "all"}
+            headers=gh_headers,
+            params={"per_page": 100, "page": page, "type": "all", "sort": "updated"}
         )
-        r.raise_for_status()
-        data = r.json()
-        if not data:
+        r1.raise_for_status()
+        data1 = r1.json()
+
+        # public (including forks) under primary owner
+        r2 = requests.get(
+            f"https://api.github.com/users/{owner}/repos",
+            headers=gh_headers,
+            params={"per_page": 100, "page": page, "type": "all", "sort": "updated"}
+        )
+        r2.raise_for_status()
+        data2 = r2.json()
+
+        combined = {repo["name"] for repo in (data1 + data2)}
+        if not combined:
             break
-        repos.extend([repo["name"] for repo in data])
+
+        repos.update(combined)
         page += 1
-    return set(repos)
+
+    return repos
+
 
 def load_state():
     try:
@@ -60,9 +96,11 @@ def load_state():
     except FileNotFoundError:
         return {}
 
+
 def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
+
 
 def prune_deleted_repos():
     gh_names = fetch_github_repos()
@@ -70,35 +108,38 @@ def prune_deleted_repos():
     state = load_state()
     now = datetime.utcnow()
 
-    # Update last-seen timestamps for existing repos
+    # Update last-seen for existing or excluded
     for name in gl_projects:
         if name in gh_names or name in EXCLUDE:
             state[name] = now.isoformat()
 
     to_delete = []
     for name, proj_id in gl_projects.items():
-        if name in EXCLUDE or name in gh_names:
+        if name in gh_names or name in EXCLUDE:
             continue
-        last_seen = state.get(name)
-        if last_seen:
-            delta = now - datetime.fromisoformat(last_seen)
-            if delta >= timedelta(days=GRACE_DAYS):
+        last_seen_iso = state.get(name)
+        if last_seen_iso:
+            last_seen = datetime.fromisoformat(last_seen_iso)
+            if now - last_seen >= timedelta(days=GRACE_DAYS):
                 to_delete.append((name, proj_id))
         else:
-            # First time missing: record timestamp
+            # First detection of deletion
             state[name] = now.isoformat()
 
     save_state(state)
 
-    # Report or perform deletions
+    # Report or delete
     for name, proj_id in to_delete:
         if DRY_RUN:
             print(f"[DRY RUN] Would delete '{name}' (project ID {proj_id})")
         else:
             print(f"Deleting '{name}' (project ID {proj_id})…", end=" ")
-            r = requests.delete(f"{GITLAB_URL}/api/v4/projects/{proj_id}", headers=gl_headers)
-            r.raise_for_status()
+            resp = requests.delete(
+                f"{GITLAB_URL}/api/v4/projects/{proj_id}", headers=gl_headers
+            )
+            resp.raise_for_status()
             print("Done.")
+
 
 if __name__ == "__main__":
     prune_deleted_repos()
