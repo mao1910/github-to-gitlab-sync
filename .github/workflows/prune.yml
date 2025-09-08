@@ -1,48 +1,56 @@
 name: Prune stale GitLab projects
 
+# Trigger manually or on a weekly schedule to clean up deleted repos
 on:
-  workflow_dispatch:          # Manual trigger
+  workflow_dispatch:           # Allows you to run pruning on demand
   schedule:
-    - cron: '0 3 * * 0'        # Optional: run weekly Sunday at 03:00 UTC
+    - cron: '0 3 * * 0'        # Scheduled run every Sunday at 03:00 UTC
 
 jobs:
   prune:
     runs-on: ubuntu-latest
 
+    # Environment variables for prune_repos.py – update as needed
     env:
-      GH_PAT:             ${{ secrets.GH_PAT }}
-      GITHUB_TOKEN:       ${{ secrets.GH_PAT }}         # alias for the script
-      GITLAB_TOKEN:       ${{ secrets.GITLAB_TOKEN }}
-      GITLAB_GROUP_ID:    ${{ secrets.GITLAB_GROUP_ID }}
-      GITHUB_USER:        "mao1910,le-fork"            # same as mirror job
-      PRUNE_EXCLUDE:      ${{ secrets.PRUNE_EXCLUDE }}   # e.g., mirror-scripts
-      DRY_RUN:            "7"                         # change to "false" to delete
-      GRACE_DAYS:         "1"                           # days to wait before deletion
+      GH_PAT:             ${{ secrets.GH_PAT }}            # GitHub PAT (repo scope)
+      GITHUB_TOKEN:       ${{ secrets.GH_PAT }}            # Alias expected by script
+      GITLAB_TOKEN:       ${{ secrets.GITLAB_TOKEN }}      # GitLab PAT (api+write_repository)
+      GITLAB_GROUP_ID:    ${{ secrets.GITLAB_GROUP_ID }}   # Numeric ID of your GitLab group
+      GITHUB_USER:        "mao1910,le-fork"                # Comma-separated GitHub usernames to include
+      PRUNE_EXCLUDE:      ${{ secrets.PRUNE_EXCLUDE }}     # Comma-separated project names to never delete (OPTIONAL)
+      DRY_RUN:            "true"                           # "true" = list candidates only; "false" = actually delete
+      GRACE_DAYS:         "7"                              # Days to wait after deletion before pruning
 
     steps:
       - uses: actions/checkout@v3
+        # Check out the repo so we can run the prune script and persist state
 
       - name: Restore prune state cache
         uses: actions/cache@v3
         with:
           path: prune_state.json
           key: prune-state
+        # Restore previous prune_state.json to track last-seen timestamps
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
+        # Ensure a Python environment for the script
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install requests
+        # Install required Python packages
 
       - name: Dry-run prune
         run: python prune_repos.py
+        # Run the prune script in dry-run mode to preview deletions
 
       - name: Save prune state cache
         uses: actions/cache@v3
         with:
           path: prune_state.json
           key: prune-state
+        # Persist updated prune_state.json for the next run
