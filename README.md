@@ -46,8 +46,8 @@ Keeps your full commit history and contribution graphs in sync across both platf
 │   └── workflows/
 │       ├── mirror-to-gitlab.yml   # Mirror setup workflow
 │       └── prune-stale.yml        # Prune stale projects workflow
-├── mirror_repos.py                # Python script for mirror setup
-├── prune_repos.py                 # Python script for pruning stale projects
+├── sync_repos.py                  # Python script for mirror setup
+├── cleanup_pruned_repos.py        # Python script for pruning stale projects
 └── README.md                      # This documentation
 ```
 
@@ -76,12 +76,12 @@ Hard-coded in the workflows:
 ### 1. Mirroring
 
 - The **mirror-to-gitlab.yml** workflow runs on schedule (daily at 03:00 UTC by default) or manual dispatch.
-- It installs dependencies, runs `mirror_repos.py`, and ensures each GitHub repo exists in GitLab with pull-mirror + fallback push-mirror.
+- It installs dependencies, runs `sync_repos.py`, and ensures each GitHub repo exists in GitLab with pull-mirror + fallback push-mirror.
 
 ### 2. Pruning Stale Projects
 
 - The **prune-stale.yml** workflow runs weekly (Sunday at 03:00 UTC by default) or manual dispatch.
-- It restores `prune_state.json`, runs `prune_repos.py` in **dry-run** mode by default, and updates the cache.
+- It restores `prune_state.json`, runs `cleanup_pruned_repos.py` in **dry-run** mode by default, and updates the cache.
 
 #### Checking Dry-Run Output
 
@@ -109,7 +109,7 @@ Hard-coded in the workflows:
 
 ## How It Works
 
-### mirror_repos.py
+### sync_repos.py
 
 1. **fetch_repos()**  
    - Lists private & owned repos via `GET /user/repos`  
@@ -124,7 +124,7 @@ Hard-coded in the workflows:
    - Configures a **pull mirror** in GitLab  
    - Falls back to `git clone --mirror` + `git push --mirror` for edge cases  
 
-### prune_repos.py
+### cleanup_pruned_repos.py
 
 1. **fetch_github_repos()**  
    - Same dual-fetch logic as mirror script  
@@ -151,7 +151,7 @@ Hard-coded in the workflows:
 - **Cron schedules:** Adjust `cron` entries in workflows.  
 - **Grace period:** Change `GRACE_DAYS` in prune workflow env.  
 - **Exclusions:** Update `PRUNE_EXCLUDE` to protect essential projects.  
-- **Visibility:** Modify payload in `mirror_repos.py` to create public mirrors.  
+- **Visibility:** Modify payload in `sync_repos.py` to create public mirrors.  
 - **Rate limiting:** Tweak `time.sleep(1)` in mirror script as needed.  
 
 ***
