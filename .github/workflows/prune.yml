@@ -16,7 +16,7 @@ jobs:
       GITLAB_GROUP_ID:    ${{ secrets.GITLAB_GROUP_ID }}
       GITHUB_USER:        "mao1910,le-fork"            # same as mirror job
       PRUNE_EXCLUDE:      ${{ secrets.PRUNE_EXCLUDE }}   # e.g., mirror-scripts
-      DRY_RUN:            "true"                        # change to "false" to delete
+      DRY_RUN:            "false"                        # change to "false" to delete
       GRACE_DAYS:         "0"                           # days to wait before deletion
 
     steps:
