@@ -28,7 +28,7 @@ Keeps your full commit history and contribution graphs in sync across both platf
 
 3. **GitLab Group**  
    - Numeric group ID, stored as secret `GITLAB_GROUP_ID`  
-   - Namespace path (e.g., `mao191-group`), hard-coded in workflows  
+   - Namespace path (e.g., `mao1910-group`), hard-coded in workflows  
 
 4. **GitHub Usernames**  
    - Comma-separated list (e.g., `mao1910,le-fork`), hard-coded in workflows  
