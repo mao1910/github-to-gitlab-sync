@@ -15,7 +15,7 @@ jobs:
       GITHUB_TOKEN:      ${{ secrets.GH_PAT }}          # Required: GitHub PAT with “repo” scope
       GITLAB_TOKEN:      ${{ secrets.GITLAB_TOKEN }}    # Required: GitLab PAT with api+write_repository
       GITLAB_GROUP_ID:   ${{ secrets.GITLAB_GROUP_ID }} # Required: Numeric GitLab group ID (e.g., “123456”)
-      GITLAB_GROUP_PATH: mao191-group                   # GitLab namespace path (public) — change to your group
+      GITLAB_GROUP_PATH: mao1910-group                  # GitLab namespace path (public) — change to your group
       GITHUB_USER:       "mao1910,le-fork"              # Comma-separated GitHub usernames to mirror
 
     steps:
